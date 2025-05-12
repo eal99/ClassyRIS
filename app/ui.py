@@ -159,7 +159,6 @@ def display_results(results):
             style = pl.get("Style", "")
             category = pl.get("Category", "")
             sclass = pl.get("Class", "")
-            price = pl.get("MAP Price", "")
             description = pl.get("Description", "")
             score = getattr(r, 'score', None)
             with cols[idx]:
@@ -179,7 +178,6 @@ def display_results(results):
                         unsafe_allow_html=True,
                     )
                     st.write(f"SKU: `{sku}`  |  Class: {sclass}")
-                    if price: st.markdown(f"**${price}**")
                     if score: st.markdown(f"*Relevance: {score:.3f}*")
                     with st.expander("View all details"):
                         for k, v in pl.items():
