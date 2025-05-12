@@ -7,3 +7,4 @@ pillow>=11.2.1
 transformers>=4.51.3
 qdrant-client>=1.14.2
 python-dotenv
+torchvision
