@@ -3,3 +3,4 @@
 /combined_files.txt
 /.cadence
 /.idea
+/.streamlit/secrets.toml

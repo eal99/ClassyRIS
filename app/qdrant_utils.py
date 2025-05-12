@@ -3,10 +3,11 @@ import os
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as qmodels
 from dotenv import load_dotenv
+import streamlit as st
 
 load_dotenv()
-QDRANT_URL = os.getenv("QDRANT_URL")
-QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
+QDRANT_URL = st.secrets["QDRANT_URL"]
+QDRANT_API_KEY = st.secrets["QDRANT_API_KEY"]
 COLLECTION_NAME = "Classy_Art_RIS"
 
 def get_client():
