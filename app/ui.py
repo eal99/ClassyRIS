@@ -220,14 +220,16 @@ def search_interface():
     else:  # "Search by SKU"
         st.subheader("Find product by SKU")
         sku_query = st.text_input("Enter SKU", key="sku_query")
+        # Sanitize SKU: capitalize all letters
+        sanitized_sku_query = sku_query.upper() if sku_query else ""
         if st.button("Search SKU", key="sku_search"):
-            df_hit = art_df[art_df["sku"] == sku_query]
+            df_hit = art_df[art_df["sku"] == sanitized_sku_query]
             st.session_state["sku_hit"] = df_hit
 
         if "sku_hit" in st.session_state:
             df_hit = st.session_state["sku_hit"]
             if df_hit.empty:
-                st.warning(f"No product found with SKU `{sku_query}`.")
+                st.warning(f"No product found with SKU `{sanitized_sku_query}`.")
             else:
                 # display it…
                 points = []
