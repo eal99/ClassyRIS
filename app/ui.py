@@ -4,6 +4,8 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import math
+import requests
+from io import BytesIO
 from PIL import Image
 from app.embedding import get_image_embedding, get_text_embedding
 from app.qdrant_utils import vector_search, hybrid_search
@@ -97,18 +99,22 @@ def display_results(results):
                         st.write(f"**{k}**: {v}")
                 st.write("---")
 
-
 # ── Main Interface ──
 def search_interface():
-    # --- Sidebar ---
+    # ── Sidebar ──
     with st.sidebar:
         st.image("company_logo.png", width=140)
         st.title("Filters")
 
+        # Search mode (Image/Text/Hybrid) unchanged…
         st.markdown("**Search mode**")
-        search_mode = st.radio("Choose", ["Image", "Text", "Hybrid"], horizontal=True)
+        search_mode = st.radio(
+            "Choose", ["Image", "Text", "Hybrid"], horizontal=True,
+            key="search_mode"
+        )
         st.markdown("---")
 
+        # Color toggle + picker
         use_color = st.checkbox("Filter by color", value=False, key="filter_enable")
         if use_color:
             picked_color = st.color_picker("Pick a color to filter", key="pick_color")
@@ -118,37 +124,29 @@ def search_interface():
             tol = None
         st.markdown("---")
 
+        # All your other facet multiselects…
         filter_selections = {}
         for conf in filter_columns_config:
-            col = conf["col"]
-            if col == "dominant_color_hex":
+            if conf["col"] == "dominant_color_hex":
                 continue
-            filter_selections[col] = st.multiselect(
+            filter_selections[conf["col"]] = st.multiselect(
                 conf["label"],
-                filter_options[col],
+                filter_options[conf["col"]],
                 default=[],
-                key=f"filter_{col}"
+                key=f"filter_{conf['col']}"
             )
 
-        top_k = st.slider("Number of results", 1, 20, value=5)
+        top_k = st.slider("Number of results", 1, 100, value=5)
         st.markdown("---")
 
         if st.button("Reset all filters"):
             st.session_state.clear()
             st.rerun()
 
-        with st.expander("ℹ️ How to use"):
-            st.markdown("""
-                **Mode:**
-                - *Image*: Find similar art by uploading an image.
-                - *Text*: Enter text/keywords to search.
-                - *Hybrid*: Combine image and description for best relevance.
-                """)
-            st.markdown("**Tip:** You can select multiple values per facet.")
-
-    # --- Build filter dict ---
+    # ── Build facet filter dict ──
     filters = {}
 
+    # only apply color filtering when use_color is True
     if use_color and picked_color:
         target = hex_to_rgb(picked_color)
         tmp = art_df.copy()
@@ -159,22 +157,32 @@ def search_interface():
         if close_hexes:
             filters["dominant_color_hex"] = close_hexes
 
+    # the rest of your facets
     for conf in filter_columns_config:
         col = conf["col"]
         if col == "dominant_color_hex":
             continue
-        sel = [v for v in filter_selections[col] if v != "Any"]
+        sel = [v for v in filter_selections[col] if v and v != "Any"]
         if sel:
             filters[col] = sel
 
-    # --- Tabs and results pane ---
+    # ── “Tabs” via radio ──
     st.title("🎨 Classy Reverse Image/Text Search")
-    # show_active_filters(filters)
+    show_active_filters(filters)
 
-    tab1, tab2 = st.tabs(["Vector/Text Search", "Search by SKU"])
+    tabs = ["Image & Text Search", "Search by SKU"]
+    default_tab = st.session_state.get("active_tab", tabs[0])
+
+    tab = st.radio(
+        "Mode",
+        options=tabs,
+        index=tabs.index(default_tab) if default_tab in tabs else 0,
+        key="active_tab",
+        horizontal=True
+    )
 
     # Tab 1: Vector/Text/Hybrid
-    with tab1:
+    if tab == "Image & Text Search":
         if search_mode == "Image":
             uploaded = st.file_uploader("Upload image", type=["jpg","jpeg","png"], key="img_uploader")
             if uploaded:
@@ -201,31 +209,44 @@ def search_interface():
                 with st.spinner("Searching…"):
                     vectors = {}
                     if up_img:
-                        vectors["image"] = get_image_embedding(Image.open(up_img).convert("RGB"))
+                        img = Image.open(up_img).convert("RGB")
+                        vectors["image"] = get_image_embedding(img)
                     if text_query:
                         vectors["text"]  = get_text_embedding(text_query)
                     results = hybrid_search(vectors, top_k, filters)
                 display_results(results)
 
-    # Tab 2: SKU Lookup (local DF)
-    with tab2:
+    # Tab 2: SKU Lookup & Find Similar
+    else:  # "Search by SKU"
         st.subheader("Find product by SKU")
         sku_query = st.text_input("Enter SKU", key="sku_query")
-        if sku_query and st.button("Search SKU", key="sku_search"):
+        if st.button("Search SKU", key="sku_search"):
             df_hit = art_df[art_df["sku"] == sku_query]
+            st.session_state["sku_hit"] = df_hit
+
+        if "sku_hit" in st.session_state:
+            df_hit = st.session_state["sku_hit"]
             if df_hit.empty:
                 st.warning(f"No product found with SKU `{sku_query}`.")
             else:
-                # Wrap into a minimal “point” object
-                results = []
+                # display it…
+                points = []
                 for _, row in df_hit.iterrows():
                     class Point: pass
+
                     p = Point()
                     p.payload = row.dropna().to_dict()
-                    p.score   = None
-                    results.append(p)
-                display_results(results)
+                    p.score = None
+                    points.append(p)
+                display_results(points)
 
+                # Find Similar button
+                main_img = df_hit.iloc[0]["main_image_file"]
+                if main_img and st.button("Find Similar", key="find_similar"):
+                    img = Image.open(BytesIO(requests.get(main_img).content)).convert("RGB")
+                    emb = get_image_embedding(img)
+                    sim = vector_search(emb, "image", top_k, {})  # no color filter
+                    display_results(sim)
 
 if __name__ == "__main__":
     search_interface()
