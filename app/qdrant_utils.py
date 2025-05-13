@@ -20,31 +20,18 @@ def get_client():
     return get_client.instance
 
 def build_filter(payload_filters: dict) -> qmodels.Filter | None:
-    """
-    Convert a dict of {field: [values]} into a Qdrant Filter,
-    using MatchAny(any=…) for multi‐value fields and MatchValue for single values.
-    """
-    must_conditions: list[qmodels.FieldCondition] = []
-
+    must_conditions = []
     for field, values in payload_filters.items():
         if not values:
             continue
-
-        # Normalize to list
         vals = values if isinstance(values, (list, tuple)) else [values]
-
-        if len(vals) > 1:
-            # NOTE: use `any`, not `any_of`
-            matcher = qmodels.MatchAny(any=vals)
-        else:
-            matcher = qmodels.MatchValue(value=vals[0])
-
-        must_conditions.append(
-            qmodels.FieldCondition(key=field, match=matcher)
+        matcher = (
+            qmodels.MatchAny(any=vals)
+            if len(vals) > 1
+            else qmodels.MatchValue(value=vals[0])
         )
-
+        must_conditions.append(qmodels.FieldCondition(key=field, match=matcher))
     return qmodels.Filter(must=must_conditions) if must_conditions else None
-
 
 def vector_search(
     vector: list[float],
@@ -54,7 +41,6 @@ def vector_search(
 ) -> list[qmodels.ScoredPoint]:
     client = get_client()
     q_filter = build_filter(payload_filters or {})
-
     resp = client.query_points(
         collection_name=COLLECTION_NAME,
         query=vector,
@@ -64,7 +50,6 @@ def vector_search(
         with_payload=True
     )
     return resp.points
-
 
 def hybrid_search(
     vectors: dict[str, list[float]],
@@ -77,7 +62,6 @@ def hybrid_search(
         for field, emb in vectors.items()
     ]
     q_filter = build_filter(payload_filters or {})
-
     resp = client.query_points(
         collection_name=COLLECTION_NAME,
         prefetch=prefetch,
@@ -87,17 +71,3 @@ def hybrid_search(
         with_payload=True
     )
     return resp.points
-
-
-def fetch_by_sku(sku: str) -> list[qmodels.ScoredPoint]:
-    """
-    Retrieve points whose 'sku' exactly matches the given SKU.
-    """
-    client = get_client()
-    q_filter = build_filter({"sku": sku})
-    scroll = client.scroll(
-        collection_name=COLLECTION_NAME,
-        filter=q_filter,
-        with_payload=True
-    )
-    return scroll.points

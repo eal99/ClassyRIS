@@ -6,16 +6,28 @@ from transformers import CLIPProcessor, CLIPModel
 from openai import OpenAI
 import streamlit as st
 
-
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
 def get_clip_model():
-    # Singleton/shared between requests for perf
-    if not hasattr(get_clip_model, 'model'):
-        get_clip_model.model = CLIPModel.from_pretrained("openai/clip-vit-large-patch14")
-        get_clip_model.processor = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14", use_fast=True)
-        get_clip_model.device = torch.device("mps") if torch.backends.mps.is_available() else torch.device("cpu")
-        get_clip_model.model = get_clip_model.model.to(get_clip_model.device)
+    if not hasattr(get_clip_model, "model"):
+        # load once
+        model = CLIPModel.from_pretrained("openai/clip-vit-large-patch14")
+        processor = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14", use_fast=True)
+
+        # prefer CUDA, else CPU
+        device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+
+        # move safely
+        try:
+            model = model.to(device)
+        except NotImplementedError:
+            device = torch.device("cpu")
+            model = model.to(device)
+
+        get_clip_model.model     = model
+        get_clip_model.processor = processor
+        get_clip_model.device    = device
+
     return get_clip_model.model, get_clip_model.processor, get_clip_model.device
 
 def get_image_embedding(image: Image.Image) -> list[float]:
@@ -28,12 +40,9 @@ def get_image_embedding(image: Image.Image) -> list[float]:
 
 def get_text_embedding(text: str) -> list[float]:
     model_name = "text-embedding-3-large"
-
     try:
-        response = client.embeddings.create(input=[text],
-                                            model=model_name)
-        embedding = response.data[0].embedding
-        return embedding
+        response = client.embeddings.create(input=[text], model=model_name)
+        return response.data[0].embedding
     except Exception as e:
         st.error(f"Error fetching embedding from OpenAI: {e}")
         return []
