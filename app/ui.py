@@ -59,30 +59,46 @@ def show_active_filters(filters):
     st.markdown("**Active filters:** " + " &nbsp; ".join(chips))
 
 def display_results(results):
+    """Render search results in a grid and offer a CSV download."""
     if not results:
-        st.warning("No results found. Try broadening your query or removing some filters.")
+        st.warning(
+            "No results found. Try broadening your query or removing some filters."
+        )
         return
+
+    # Convert results to a DataFrame for the download button
+    df_results = pd.DataFrame(
+        [
+            {
+                **(r.payload or {}),
+                "score": getattr(r, "score", None),
+            }
+            for r in results
+        ]
+    )
 
     num_cols = 5
     for i in range(0, len(results), num_cols):
         cols = st.columns(num_cols)
-        for idx, r in enumerate(results[i:i + num_cols]):
+        for idx, r in enumerate(results[i : i + num_cols]):
             pl = r.payload or {}
-            img_url     = pl.get("main_image_file")
-            name        = pl.get("product_name", "N/A")
-            sku         = pl.get("sku", "")
-            style       = pl.get("style", "")
-            category    = pl.get("category", "")
-            sclass      = pl.get("class", "")
-            raw_desc    = pl.get("description")
+            img_url = pl.get("main_image_file")
+            name = pl.get("product_name", "N/A")
+            sku = pl.get("sku", "")
+            style = pl.get("style", "")
+            category = pl.get("category", "")
+            sclass = pl.get("class", "")
+            raw_desc = pl.get("description")
             description = str(raw_desc) if raw_desc is not None else ""
-            score       = getattr(r, "score", None)
+            score = getattr(r, "score", None)
 
             with cols[idx]:
                 if img_url:
                     st.image(img_url, caption=name, use_container_width=True)
                 st.markdown(f"**{name}**")
-                snippet = description[:100] + ("..." if len(description) > 100 else "")
+                snippet = description[:100] + (
+                    "..." if len(description) > 100 else ""
+                )
                 st.caption(snippet)
                 st.markdown(
                     f"<span style='color:#0074D9; background:#e3f2fd; "
@@ -98,6 +114,11 @@ def display_results(results):
                     for k, v in pl.items():
                         st.write(f"**{k}**: {v}")
                 st.write("---")
+
+    csv = df_results.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        "Download results as CSV", csv, "results.csv", mime="text/csv"
+    )
 
 # ── Main Interface ──
 def search_interface():

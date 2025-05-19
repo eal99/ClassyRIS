@@ -4,12 +4,13 @@ import os
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as qmodels
 from dotenv import load_dotenv
-import streamlit as st
+
+from app import config
 
 load_dotenv()
-QDRANT_URL      = st.secrets["QDRANT_URL"]
-QDRANT_API_KEY  = st.secrets["QDRANT_API_KEY"]
-COLLECTION_NAME = "Classy_Art"
+QDRANT_URL = os.getenv("QDRANT_URL")
+QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
+COLLECTION_NAME = config.QDRANT_COLLECTION
 
 def get_client():
     if not hasattr(get_client, "instance"):
