@@ -1,11 +1,9 @@
 streamlit>=1.45.0
 requests>=2.32.3
-torch>=2.7.0
 numpy>=2.2.5
 openai>=1.78.1
 pillow>=11.2.1
-transformers>=4.51.3
 qdrant-client>=1.14.2
 python-dotenv
-torchvision
 pandas
+gradio-client
