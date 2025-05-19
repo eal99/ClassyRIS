@@ -6,7 +6,9 @@ from transformers import CLIPProcessor, CLIPModel
 from openai import OpenAI
 import streamlit as st
 
-client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+# API key can be provided via the OPENAI_API_KEY environment variable which is
+# the typical approach when deploying to Heroku.
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 def get_clip_model():
     if not hasattr(get_clip_model, "model"):
