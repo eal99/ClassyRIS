@@ -11,7 +11,6 @@ from app.qdrant_utils import vector_search, hybrid_search
 from app.data_utils import art_df, filter_columns_config, filter_options
 
 # --- SET PAGE CONFIG FIRST ---
-st.set_page_config(page_title="Classy Search", layout="wide", page_icon="🎨")
 
 # small CSS tweaks for tighter layout
 st.markdown(
