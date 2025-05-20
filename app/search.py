@@ -10,6 +10,9 @@ from app.embedding import get_image_embedding, get_text_embedding
 from app.qdrant_utils import vector_search, hybrid_search
 from app.data_utils import art_df, filter_columns_config, filter_options
 
+# --- SET PAGE CONFIG FIRST ---
+st.set_page_config(page_title="Classy Search", layout="wide", page_icon="🎨")
+
 # small CSS tweaks for tighter layout
 st.markdown(
     """
@@ -23,7 +26,7 @@ st.markdown(
 PAGE_SIZE = 10
 
 
-def hex_to_rgb(h: str) -> tuple[int, int, int]:
+def hex_to_rgb(h: str) -> tuple[int, ...]:
     h = h.lstrip("#")
     return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
 
@@ -91,14 +94,14 @@ def display_results(results: list | None) -> None:
     with col1:
         if st.button("Prev", disabled=page == 0):
             st.session_state.page = max(page - 1, 0)
-            st.experimental_rerun()
+            st.rerun()
     with col2:
         total = len(results)
         st.write(f"Page {page+1} of {math.ceil(total/PAGE_SIZE)}")
     with col3:
         if st.button("Next", disabled=end >= len(results)):
             st.session_state.page = page + 1
-            st.experimental_rerun()
+            st.rerun()
 
     csv = df_results.to_csv(index=False).encode("utf-8")
     st.download_button(
@@ -111,7 +114,6 @@ def display_results(results: list | None) -> None:
 
 
 def render() -> None:
-    st.set_page_config(page_title="Classy Search", layout="wide", page_icon="🎨")
 
     with st.sidebar:
         st.image("company_logo.png", width=500)
@@ -235,6 +237,3 @@ def render() -> None:
                     display_results(sim)
 
         # end search by SKU
-
-
-
