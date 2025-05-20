@@ -7,3 +7,4 @@ qdrant-client>=1.14.2
 python-dotenv
 pandas
 gradio-client
+altair>=5.1.0

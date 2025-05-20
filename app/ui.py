@@ -7,8 +7,10 @@ import math
 import requests
 from io import BytesIO
 from PIL import Image
+import altair as alt
 from app.embedding import get_image_embedding, get_text_embedding
 from app.qdrant_utils import vector_search, hybrid_search
+from app import openai_utils
 
 # ── Page config ──
 st.set_page_config(
@@ -120,6 +122,44 @@ def display_results(results):
         "Download results as CSV", csv, "results.csv", mime="text/csv"
     )
 
+# ── Analytics ──
+def analytics_dashboard():
+    """Display basic analytics for the product catalog."""
+    st.header("Analytics Dashboard")
+    st.markdown("Overview of available products and pricing.")
+
+    total_products = len(art_df)
+    st.metric("Total products", total_products)
+
+    if "ecom_price" in art_df.columns:
+        prices = pd.to_numeric(art_df["ecom_price"], errors="coerce").dropna()
+        if not prices.empty:
+            st.metric("Average price", f"${prices.mean():.2f}")
+            bins = pd.cut(prices, bins=10)
+            counts = bins.value_counts().sort_index().reset_index()
+            counts.columns = ["range", "count"]
+            st.subheader("Price distribution")
+            chart = alt.Chart(counts).mark_bar().encode(
+                x="range:N", y="count:Q", tooltip=["range", "count"]
+            )
+            st.altair_chart(chart, use_container_width=True)
+
+    st.subheader("Top Categories")
+    top_cats = art_df["category"].value_counts().head(10)
+    st.bar_chart(top_cats)
+
+    with st.expander("AI Insights (beta)"):
+        placeholder_ai_tools()
+
+# ── Placeholder for future OpenAI features ──
+def placeholder_ai_tools():
+    """Demonstrate how OpenAI utilities might be used in the future."""
+    example_desc = art_df["description"].dropna().iloc[0]
+    st.subheader("AI‑Generated Summary")
+    st.write(openai_utils.summarize_description(example_desc))
+    tags = openai_utils.generate_tags(example_desc)
+    st.write("Suggested tags:", ", ".join(tags))
+
 # ── Main Interface ──
 def search_interface():
     # ── Sidebar ──
@@ -191,19 +231,12 @@ def search_interface():
     st.title("🎨 Classy Reverse Image/Text Search")
     show_active_filters(filters)
 
-    tabs = ["Image & Text Search", "Search by SKU"]
-    default_tab = st.session_state.get("active_tab", tabs[0])
-
-    tab = st.radio(
-        "Mode",
-        options=tabs,
-        index=tabs.index(default_tab) if default_tab in tabs else 0,
-        key="active_tab",
-        horizontal=True
-    )
+    tab_names = ["Image & Text Search", "Search by SKU", "Analytics"]
+    tabs = st.tabs(tab_names)
+    tab_map = dict(zip(tab_names, tabs))
 
     # Tab 1: Vector/Text/Hybrid
-    if tab == "Image & Text Search":
+    with tab_map["Image & Text Search"]:
         if search_mode == "Image":
             uploaded = st.file_uploader("Upload image", type=["jpg","jpeg","png"], key="img_uploader")
             if uploaded:
@@ -238,7 +271,7 @@ def search_interface():
                 display_results(results)
 
     # Tab 2: SKU Lookup & Find Similar
-    else:  # "Search by SKU"
+    with tab_map["Search by SKU"]:
         st.subheader("Find product by SKU")
         sku_query = st.text_input("Enter SKU", key="sku_query")
         # Sanitize SKU: capitalize all letters
@@ -270,6 +303,10 @@ def search_interface():
                     emb = get_image_embedding(img)
                     sim = vector_search(emb, "image", top_k, {})  # no color filter
                     display_results(sim)
+
+    # Tab 3: Analytics
+    with tab_map["Analytics"]:
+        analytics_dashboard()
 
 if __name__ == "__main__":
     search_interface()
