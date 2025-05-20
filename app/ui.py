@@ -120,6 +120,28 @@ def display_results(results):
         "Download results as CSV", csv, "results.csv", mime="text/csv"
     )
 
+# ── Analytics ──
+def analytics_dashboard():
+    """Display basic analytics for the product catalog."""
+    st.header("Analytics Dashboard")
+    st.markdown("Overview of available products and pricing.")
+
+    total_products = len(art_df)
+    st.metric("Total products", total_products)
+
+    if "ecom_price" in art_df.columns:
+        prices = pd.to_numeric(art_df["ecom_price"], errors="coerce").dropna()
+        if not prices.empty:
+            st.metric("Average price", f"${prices.mean():.2f}")
+            bins = pd.cut(prices, bins=10)
+            counts = bins.value_counts().sort_index()
+            st.subheader("Price distribution")
+            st.bar_chart(counts)
+
+    st.subheader("Top Categories")
+    top_cats = art_df["category"].value_counts().head(10)
+    st.bar_chart(top_cats)
+
 # ── Main Interface ──
 def search_interface():
     # ── Sidebar ──
@@ -191,7 +213,7 @@ def search_interface():
     st.title("🎨 Classy Reverse Image/Text Search")
     show_active_filters(filters)
 
-    tabs = ["Image & Text Search", "Search by SKU"]
+    tabs = ["Image & Text Search", "Search by SKU", "Analytics"]
     default_tab = st.session_state.get("active_tab", tabs[0])
 
     tab = st.radio(
@@ -238,7 +260,7 @@ def search_interface():
                 display_results(results)
 
     # Tab 2: SKU Lookup & Find Similar
-    else:  # "Search by SKU"
+    elif tab == "Search by SKU":
         st.subheader("Find product by SKU")
         sku_query = st.text_input("Enter SKU", key="sku_query")
         # Sanitize SKU: capitalize all letters
@@ -270,6 +292,9 @@ def search_interface():
                     emb = get_image_embedding(img)
                     sim = vector_search(emb, "image", top_k, {})  # no color filter
                     display_results(sim)
+
+    else:  # Analytics tab
+        analytics_dashboard()
 
 if __name__ == "__main__":
     search_interface()
