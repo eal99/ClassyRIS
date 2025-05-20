@@ -11,6 +11,7 @@ import altair as alt
 from app.embedding import get_image_embedding, get_text_embedding
 from app.qdrant_utils import vector_search, hybrid_search
 from app import openai_utils
+import uuid
 
 # ── Page config ──
 st.set_page_config(
@@ -119,7 +120,11 @@ def display_results(results):
 
     csv = df_results.to_csv(index=False).encode("utf-8")
     st.download_button(
-        "Download results as CSV", csv, "results.csv", mime="text/csv"
+        "Download results as CSV",
+        csv,
+        "results.csv",
+        mime="text/csv",
+        key=str(uuid.uuid4()),
     )
 
 # ── Analytics ──
@@ -168,7 +173,7 @@ def placeholder_ai_tools():
 def search_interface():
     # ── Sidebar ──
     with st.sidebar:
-        st.image("company_logo.png", width=140)
+        st.image("company_logo.png", width=500)
         st.title("Filters")
 
         # Search mode (Image/Text/Hybrid) unchanged…
