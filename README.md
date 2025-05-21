@@ -17,11 +17,11 @@ The legacy Streamlit prototype still lives in the root `app/` directory for refe
    - `QDRANT_URL`
    - `QDRANT_API_KEY` (optional if your Qdrant instance is open)
    - `QDRANT_COLLECTION` (defaults to `Classy_Art`)
-2. Install dependencies for the frontend and backend (optional when using Docker):
+2. Install dependencies for the frontend and backend (optional when using Docker).
+   A setup script is provided to install everything in one step:
 
 ```bash
-cd frontend && npm install
-cd ../backend && pip install -r requirements.txt
+./.codex/setup.sh
 ```
 
 3. Build and start all services via Docker Compose:
