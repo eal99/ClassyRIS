@@ -4,8 +4,7 @@ import sys
 from pathlib import Path
 from typing import List, Dict, Optional
 
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from fastapi import FastAPI, HTTPException, UploadFile, File
 
 # allow importing modules from repository root
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -13,6 +12,13 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.append(str(ROOT_DIR))
 
 from app import qdrant_utils, embedding, data_utils, openai_utils
+from shared_types.api_models import (
+    VectorSearchRequest,
+    HybridSearchRequest,
+    ChatRequest,
+    TextSearchRequest,
+    SearchResult,
+)
 
 import redis
 import os
@@ -23,22 +29,6 @@ redis_client = redis.Redis.from_url(REDIS_URL)
 app = FastAPI(title="ClassyRIS API")
 
 
-class VectorSearchRequest(BaseModel):
-    vector: List[float]
-    vector_name: str
-    top_k: int = 5
-    filters: Optional[Dict[str, List[str]]] = None
-
-
-class HybridSearchRequest(BaseModel):
-    vectors: Dict[str, List[float]]
-    top_k: int = 5
-    filters: Optional[Dict[str, List[str]]] = None
-
-
-class ChatRequest(BaseModel):
-    session_id: str
-    message: str
 
 
 @app.get("/health")
@@ -52,6 +42,32 @@ def search_vector(req: VectorSearchRequest):
         results = qdrant_utils.vector_search(
             req.vector, req.vector_name, req.top_k, req.filters or {}
         )
+        return [r.model_dump() if hasattr(r, "model_dump") else r.payload for r in results]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/search/text")
+def search_text(req: TextSearchRequest):
+    """Compute a text embedding and perform vector search."""
+    try:
+        emb = embedding.get_text_embedding(req.query)
+        results = qdrant_utils.vector_search(
+            emb, "text", req.top_k, req.filters or {}
+        )
+        return [r.model_dump() if hasattr(r, "model_dump") else r.payload for r in results]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/search/image")
+async def search_image(file: UploadFile = File(...), top_k: int = 5):
+    """Search using an uploaded image."""
+    try:
+        from PIL import Image
+        img = Image.open(file.file).convert("RGB")
+        emb = embedding.get_image_embedding(img)
+        results = qdrant_utils.vector_search(emb, "image", top_k, {})
         return [r.model_dump() if hasattr(r, "model_dump") else r.payload for r in results]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
