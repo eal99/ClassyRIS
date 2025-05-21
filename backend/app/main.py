@@ -2,14 +2,20 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import Dict
 
 from fastapi import FastAPI, HTTPException, UploadFile, File
 
 # allow importing modules from repository root
 ROOT_DIR = Path(__file__).resolve().parents[2]
 if str(ROOT_DIR) not in sys.path:
-    sys.path.append(str(ROOT_DIR))
+    sys.path.insert(0, str(ROOT_DIR))
+    # Redirect local "app" package to the repository root so imports like
+    # ``from app import qdrant_utils`` resolve correctly when running from this
+    # directory.
+    pkg = sys.modules.get("app")
+    if pkg and Path(getattr(pkg, "__file__", "")).parent == Path(__file__).parent:
+        pkg.__path__.insert(0, str(ROOT_DIR / "app"))
 
 from app import qdrant_utils, embedding, data_utils, openai_utils
 from shared_types.api_models import (
@@ -17,7 +23,6 @@ from shared_types.api_models import (
     HybridSearchRequest,
     ChatRequest,
     TextSearchRequest,
-    SearchResult,
 )
 
 import redis
