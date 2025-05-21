@@ -1,0 +1,91 @@
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+from typing import List, Dict, Optional
+
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+
+# allow importing modules from repository root
+ROOT_DIR = Path(__file__).resolve().parents[2]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.append(str(ROOT_DIR))
+
+from app import qdrant_utils, embedding, data_utils, openai_utils
+
+import redis
+import os
+
+REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
+redis_client = redis.Redis.from_url(REDIS_URL)
+
+app = FastAPI(title="ClassyRIS API")
+
+
+class VectorSearchRequest(BaseModel):
+    vector: List[float]
+    vector_name: str
+    top_k: int = 5
+    filters: Optional[Dict[str, List[str]]] = None
+
+
+class HybridSearchRequest(BaseModel):
+    vectors: Dict[str, List[float]]
+    top_k: int = 5
+    filters: Optional[Dict[str, List[str]]] = None
+
+
+class ChatRequest(BaseModel):
+    session_id: str
+    message: str
+
+
+@app.get("/health")
+def health() -> Dict[str, str]:
+    return {"status": "ok"}
+
+
+@app.post("/search/vector")
+def search_vector(req: VectorSearchRequest):
+    try:
+        results = qdrant_utils.vector_search(
+            req.vector, req.vector_name, req.top_k, req.filters or {}
+        )
+        return [r.model_dump() if hasattr(r, "model_dump") else r.payload for r in results]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/search/hybrid")
+def search_hybrid(req: HybridSearchRequest):
+    try:
+        results = qdrant_utils.hybrid_search(req.vectors, req.top_k, req.filters or {})
+        return [r.model_dump() if hasattr(r, "model_dump") else r.payload for r in results]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/analytics/summary")
+def analytics_summary():
+    df = data_utils.art_df
+    total = len(df)
+    response = {"total_products": total}
+    if "ecom_price" in df.columns:
+        prices = df["ecom_price"].astype(float)
+        response["average_price"] = prices.mean()
+    return response
+
+
+@app.post("/chat")
+def chat(req: ChatRequest):
+    key = f"chat:{req.session_id}"
+    history = redis_client.lrange(key, 0, -1)
+    messages = [m.decode() for m in history]
+    messages.append(req.message)
+    redis_client.rpush(key, req.message)
+    # In a real implementation, you'd call an LLM here with the conversation
+    # For now we'll echo back the last message
+    reply = openai_utils.summarize_description(req.message)
+    redis_client.rpush(key, reply)
+    return {"reply": reply, "history": messages + [reply]}

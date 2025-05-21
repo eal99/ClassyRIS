@@ -1,43 +1,40 @@
-# ClassyRIS
+# ClassyRIS Modernized
 
-ClassyRIS is a Streamlit-based application for searching an artwork catalog using both text and images. It relies on OpenAI embeddings and a Qdrant vector database for retrieval.
+This repository now contains a starter monorepo for a modern rewrite of the original Streamlit app.  The goal is to provide a scalable architecture with a TypeScript/React frontend and a FastAPI backend.
 
-## Installation
-
-1. Clone the repository.
-2. (Optional) Create and activate a virtual environment.
-3. Install dependencies:
-
-```bash
-pip install -r requirements.txt
+```
+./frontend       Next.js application (TypeScript)
+./backend        FastAPI service with REST/async APIs
+./shared-types   Shared API models
 ```
 
-## Environment Variables
+The legacy Streamlit prototype still lives in the root `app/` directory for reference.
 
-The app expects several environment variables to be set:
+## Local Development
 
-- `OPENAI_API_KEY` – API key for accessing OpenAI embeddings.
-- `QDRANT_URL` – URL for your Qdrant instance.
-- `QDRANT_API_KEY` – API key for Qdrant (if required).
-- `QDRANT_COLLECTION` – Name of the Qdrant collection (defaults to `Classy_Art`).
-
-You can place these in a `.env` file or set them in your shell before running the app.
-
-## Running the App
-
-Start the Streamlit server:
+1. Create a `.env` file with required keys (`OPENAI_API_KEY`, `QDRANT_URL`, etc.).
+2. Build and start services via Docker Compose:
 
 ```bash
-streamlit run main.py
+docker compose up --build
 ```
 
-The application will open in your browser at `http://localhost:8501`.
+The frontend will be available on `http://localhost:3000` and the backend on `http://localhost:8000`.
 
-A `company_logo.png` image is included and appears in the user interface. Feel free to replace it with your own branding.
+## Backend
 
-## Screenshot
+The FastAPI app exposes search, analytics and chat endpoints and reuses the existing Qdrant/OpenAI utilities.  See `backend/app/main.py` for the implementation.
 
-Below is a placeholder screenshot of the running UI (replace with your own if desired):
+Run locally with:
 
-![Screenshot](company_logo.png)
+```bash
+uvicorn app.main:app --reload
+```
 
+## Frontend
+
+A minimal Next.js project with route based pages (`/search`, `/analytics`, `/chat`, `/imagesearch`, `/hub`).  Each page calls the backend APIs and is styled with Tailwind CSS and Material‑UI components.
+
+## Notes
+
+This rewrite is a starting point only.  It does not yet include production authentication, monitoring or the full analytics database.  Those pieces can be added on top of this scaffolding.
