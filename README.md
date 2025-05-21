@@ -37,11 +37,22 @@ Hot reloading is enabled for both services when using the default compose config
 
 The FastAPI app exposes search, analytics and chat endpoints and reuses the existing Qdrant/OpenAI utilities.  See `backend/app/main.py` for the implementation.
 
-Run locally with:
+Run locally with **one** of the following commands:
+
+From the repository root:
 
 ```bash
-uvicorn app.main:app --reload
+uvicorn backend.app.main:app --reload
 ```
+
+Or from inside the `backend` directory:
+
+```bash
+PYTHONPATH=.. uvicorn app.main:app --reload
+```
+
+Running from any other directory may import the wrong `app` package because of
+the legacy `app/` folder in the repo root.
 
 Main API endpoints:
 
