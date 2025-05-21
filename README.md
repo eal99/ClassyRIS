@@ -12,14 +12,26 @@ The legacy Streamlit prototype still lives in the root `app/` directory for refe
 
 ## Local Development
 
-1. Create a `.env` file with required keys (`OPENAI_API_KEY`, `QDRANT_URL`, etc.).
-2. Build and start services via Docker Compose:
+1. Create a `.env` file with the following variables:
+   - `OPENAI_API_KEY`
+   - `QDRANT_URL`
+   - `QDRANT_API_KEY` (optional if your Qdrant instance is open)
+   - `QDRANT_COLLECTION` (defaults to `Classy_Art`)
+2. Install dependencies for the frontend and backend (optional when using Docker):
+
+```bash
+cd frontend && npm install
+cd ../backend && pip install -r requirements.txt
+```
+
+3. Build and start all services via Docker Compose:
 
 ```bash
 docker compose up --build
 ```
 
 The frontend will be available on `http://localhost:3000` and the backend on `http://localhost:8000`.
+Hot reloading is enabled for both services when using the default compose configuration.
 
 ## Backend
 
@@ -31,6 +43,17 @@ Run locally with:
 uvicorn app.main:app --reload
 ```
 
+Main API endpoints:
+
+```
+POST /search/text   - search using a text query
+POST /search/image  - search using an uploaded image
+POST /search/vector - search using a raw embedding vector
+POST /search/hybrid - combine multiple vectors using RRF
+GET  /analytics/summary
+POST /chat
+```
+
 ## Frontend
 
 A minimal Next.js project with route based pages (`/search`, `/analytics`, `/chat`, `/imagesearch`, `/hub`).  Each page calls the backend APIs and is styled with Tailwind CSS and Material‑UI components.
@@ -38,3 +61,9 @@ A minimal Next.js project with route based pages (`/search`, `/analytics`, `/cha
 ## Notes
 
 This rewrite is a starting point only.  It does not yet include production authentication, monitoring or the full analytics database.  Those pieces can be added on top of this scaffolding.
+
+## Next Steps
+
+* Connect the backend to a persistent database and add authentication.
+* Flesh out the React components for a richer user experience.
+* Add automated tests for the API and frontend.

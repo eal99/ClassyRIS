@@ -5,10 +5,10 @@ export default function Search() {
   const [results, setResults] = useState<any[]>([])
 
   async function handleSearch() {
-    const res = await fetch('http://localhost:8000/search/vector', {
+    const res = await fetch('http://localhost:8000/search/text', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ vector: [], vector_name: 'text', top_k: 5 })
+      body: JSON.stringify({ query, top_k: 5 })
     })
     setResults(await res.json())
   }

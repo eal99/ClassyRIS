@@ -20,3 +20,15 @@ export interface ChatRequest {
   session_id: string
   message: string
 }
+
+export interface TextSearchRequest {
+  query: string
+  top_k?: number
+  filters?: Record<string, string[]>
+}
+
+export interface ImageSearchRequest {
+  image_base64: string
+  top_k?: number
+  filters?: Record<string, string[]>
+}

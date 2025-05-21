@@ -20,3 +20,17 @@ class HybridSearchRequest(BaseModel):
 class ChatRequest(BaseModel):
     session_id: str
     message: str
+
+
+class TextSearchRequest(BaseModel):
+    """Search using a natural language query."""
+    query: str
+    top_k: int = 5
+    filters: Optional[Dict[str, List[str]]] = None
+
+
+class ImageSearchRequest(BaseModel):
+    """Search using a base64 encoded image."""
+    image_base64: str
+    top_k: int = 5
+    filters: Optional[Dict[str, List[str]]] = None
