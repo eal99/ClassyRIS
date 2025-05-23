@@ -4,12 +4,18 @@ from openai import OpenAI
 import os
 import streamlit as st
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# Initialize only if API key is present so importing doesn't fail in
+# environments without OpenAI credentials.
+_api_key = os.getenv("OPENAI_API_KEY")
+client = OpenAI(api_key=_api_key) if _api_key else None
 
 
 def summarize_description(description: str) -> str:
     """Return a short summary of a product description using OpenAI."""
     if not description:
+        return ""
+    if client is None:
+        st.warning("OPENAI_API_KEY not set; summarization disabled.")
         return ""
     try:
         prompt = f"Summarize the following product description in one sentence:\n{description}"
@@ -25,6 +31,9 @@ def summarize_description(description: str) -> str:
 def generate_tags(description: str) -> list[str]:
     """Generate simple comma-separated tags from a description."""
     if not description:
+        return []
+    if client is None:
+        st.warning("OPENAI_API_KEY not set; tag generation disabled.")
         return []
     try:
         prompt = (
