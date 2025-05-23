@@ -1,6 +1,5 @@
-/.env
-/combine_files.py
-/combined_files.txt
-/.cadence
-/.idea
-/.streamlit/secrets.toml
+node_modules
+.env
+__pycache__
+frontend/.next
+frontend/out
