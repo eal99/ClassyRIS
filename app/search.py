@@ -41,7 +41,9 @@ def display_results(results: list | None, key_prefix: str = "") -> None:
     if results is not None:
         st.session_state.search_results = results
         st.session_state.page = 0
+        st.session_state.results_prefix = key_prefix
     results = st.session_state.get("search_results", [])
+    key_prefix = st.session_state.get("results_prefix", key_prefix)
     if not results:
         st.warning("No results found. Try broadening your query or removing some filters.")
         return
@@ -205,6 +207,9 @@ def render() -> None:
                     results = hybrid_search(vectors, top_k, filters)
                 display_results(results, key_prefix="hyb_search")
 
+        if st.session_state.get("search_results"):
+            display_results(None)
+
     with tab_map["Search by SKU"]:
         st.subheader("Find product by SKU")
         sku_query = st.text_input("Enter SKU", key="sku_query")
@@ -234,5 +239,8 @@ def render() -> None:
                     emb = get_image_embedding(img)
                     sim = vector_search(emb, "image", top_k, {})
                     display_results(sim, key_prefix="find_similar")
+
+        if st.session_state.get("search_results"):
+            display_results(None)
 
         # end search by SKU
