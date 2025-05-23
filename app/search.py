@@ -114,35 +114,37 @@ def display_results(results: list | None, key_prefix: str = "") -> None:
     )
 
 
-def render() -> None:
-
+# ──────────────────────────────  Helpers  ──────────────────────────────
+def _build_sidebar() -> tuple[dict[str, list[str]], int, str]:
+    """Render the sidebar and return (filters, top_k, search_mode)."""
     with st.sidebar:
         st.image("company_logo.png", width=500)
         st.title("Filters")
 
-        st.markdown("**Search mode**")
-        search_mode = st.radio("Choose", ["Image", "Text", "Hybrid"], horizontal=True, key="search_mode")
+        search_mode = st.radio("Search mode", ["Image", "Text", "Hybrid"], horizontal=True)
         st.markdown("---")
 
-        use_color = st.checkbox("Filter by color", value=False, key="filter_enable")
-        if use_color:
-            picked_color = st.color_picker("Pick a color to filter", key="pick_color")
-            tol = st.slider("Color tolerance (0–441)", 0, 441, 50, key="color_tol")
-        else:
-            picked_color = None
-            tol = None
+        # --- Colour filter ----------------------------------------------------
+        filters: dict[str, list[str]] = {}
+        if st.checkbox("Filter by Color"):
+            picked_colour = st.color_picker("Pick a Color")
+            tolerance = st.slider("Colour tolerance (0–441)", 0, 441, 50)
+            target_rgb = hex_to_rgb(picked_colour)
+            tmp = art_df.copy()
+            tmp["_dist"] = tmp["dominant_color_hex"].map(lambda h: math.dist(hex_to_rgb(h), target_rgb))
+            close_hexes = tmp[tmp["_dist"] <= tolerance]["dominant_color_hex"].unique().tolist()
+            if close_hexes:
+                filters["dominant_color_hex"] = close_hexes
         st.markdown("---")
 
-        filter_selections = {}
+        # --- Multiselect filters ---------------------------------------------
         for conf in filter_columns_config:
-            if conf["col"] == "dominant_color_hex":
+            col_name = conf["col"]
+            if col_name == "dominant_color_hex":
                 continue
-            filter_selections[conf["col"]] = st.multiselect(
-                conf["label"],
-                filter_options[conf["col"]],
-                default=[],
-                key=f"filter_{conf['col']}"
-            )
+            selection = st.multiselect(conf["label"], filter_options[col_name], default=[])
+            if selection and "Any" not in selection:
+                filters[col_name] = selection
 
         top_k = st.slider("Number of results", 1, 100, value=5)
         st.markdown("---")
@@ -151,96 +153,110 @@ def render() -> None:
             st.session_state.clear()
             st.rerun()
 
-    filters: dict[str, list[str]] = {}
-    if use_color and picked_color:
-        target = hex_to_rgb(picked_color)
-        tmp = art_df.copy()
-        tmp["_dist"] = tmp["dominant_color_hex"].map(lambda h: math.dist(hex_to_rgb(h), target))
-        close_hexes = tmp[tmp["_dist"] <= tol]["dominant_color_hex"].unique().tolist()
-        if close_hexes:
-            filters["dominant_color_hex"] = close_hexes
+    return filters, top_k, search_mode
 
-    for conf in filter_columns_config:
-        col = conf["col"]
-        if col == "dominant_color_hex":
-            continue
-        sel = [v for v in filter_selections[col] if v and v != "Any"]
-        if sel:
-            filters[col] = sel
 
+def _image_text_tab(search_mode: str, top_k: int, filters: dict) -> bool:
+    """Handle the ‘Image & Text Search’ tab. Returns True if new results drawn."""
+    new_results_shown = False
+
+    if search_mode == "Image":
+        uploaded = st.file_uploader("Upload image", type=["jpg", "jpeg", "png"])
+        if uploaded and st.button("🔍  Search"):
+            img = Image.open(uploaded).convert("RGB")
+            st.image(img, caption="Uploaded image", width=220)
+            with st.spinner("Searching…"):
+                emb = get_image_embedding(img)
+                res = vector_search(emb, "image", top_k, filters)
+            display_results(res, key_prefix="img_search")
+            new_results_shown = True
+
+    elif search_mode == "Text":
+        query = st.text_input("Enter a descriptive query")
+        if query and st.button("🔍  Search"):
+            with st.spinner("Searching…"):
+                emb = get_text_embedding(query)
+                res = vector_search(emb, "text", top_k, filters)
+            display_results(res, key_prefix="txt_search")
+            new_results_shown = True
+
+    else:  # Hybrid
+        up_img = st.file_uploader("Upload image (optional)", type=["jpg", "jpeg", "png"])
+        query = st.text_input("Enter a descriptive query (optional)")
+        if (up_img or query) and st.button("🔍  Search"):
+            vectors = {}
+            if up_img:
+                img = Image.open(up_img).convert("RGB")
+                vectors["image"] = get_image_embedding(img)
+            if query:
+                vectors["text"] = get_text_embedding(query)
+            with st.spinner("Searching…"):
+                res = hybrid_search(vectors, top_k, filters)
+            display_results(res, key_prefix="hyb_search")
+            new_results_shown = True
+
+    return new_results_shown
+
+
+def _sku_tab(top_k: int) -> bool:
+    """Handle the ‘Search by SKU’ tab. Returns True if new results drawn."""
+    new_results_shown = False
+    st.subheader("Find product by SKU")
+
+    sku_query = st.text_input("Enter SKU").upper()
+    if st.button("🔍  Search SKU"):
+        hit = art_df[art_df["sku"] == sku_query]
+        st.session_state["sku_hit"] = hit
+
+    if "sku_hit" in st.session_state:
+        hit = st.session_state["sku_hit"]
+        if hit.empty:
+            st.warning(f"No product found with SKU `{sku_query}`.")
+        else:
+            # Wrap DataFrame rows in dummy points expected by display_results()
+            points = []
+            for _, row in hit.iterrows():
+                class Point:  # simple struct-like helper
+                    pass
+                p = Point()
+                p.payload = row.dropna().to_dict()
+                p.score = None
+                points.append(p)
+            display_results(points, key_prefix="sku_results")
+            new_results_shown = True
+
+            # Optional “find similar” feature
+            main_img = hit.iloc[0]["main_image_file"]
+            if main_img and st.button("Find similar items"):
+                img = Image.open(BytesIO(requests.get(main_img).content)).convert("RGB")
+                emb = get_image_embedding(img)
+                similar = vector_search(emb, "image", top_k, {})
+                display_results(similar, key_prefix="find_similar")
+                new_results_shown = True
+
+    return new_results_shown
+
+
+# ───────────────────────────────  Main  ────────────────────────────────
+def render() -> None:
+    """Entry point for the Streamlit page."""
+    # ----- sidebar & filters -------------------------------------------------
+    filters, top_k, search_mode = _build_sidebar()
+
+    # ----- header ------------------------------------------------------------
     st.title("🎨 Classy Reverse Image/Text Search")
     show_active_filters(filters)
 
-    tab_names = ["Image & Text Search", "Search by SKU"]
-    tabs = st.tabs(tab_names)
-    tab_map = dict(zip(tab_names, tabs))
+    # ----- tabs --------------------------------------------------------------
+    img_text_tab, sku_tab = st.tabs(["Image & Text Search", "Search by SKU"])
 
-    with tab_map["Image & Text Search"]:
-        if search_mode == "Image":
-            uploaded = st.file_uploader("Upload image", type=["jpg", "jpeg", "png"], key="img_uploader")
-            if uploaded:
-                img = Image.open(uploaded).convert("RGB")
-                st.image(img, caption="Uploaded Image", width=220)
-                if st.button("Search", key="img_search"):
-                    with st.spinner("Searching…"):
-                        emb = get_image_embedding(img)
-                        results = vector_search(emb, "image", top_k, filters)
-                    display_results(results, key_prefix="img_search")
-        elif search_mode == "Text":
-            text_query = st.text_input("Enter a descriptive query", key="txt_query")
-            if text_query and st.button("Search", key="txt_search"):
-                with st.spinner("Searching…"):
-                    emb = get_text_embedding(text_query)
-                    results = vector_search(emb, "text", top_k, filters)
-                display_results(results, key_prefix="txt_search")
-        else:
-            up_img = st.file_uploader("Upload image for hybrid search", type=["jpg", "jpeg", "png"], key="hyb_img")
-            text_query = st.text_input("Enter a descriptive query", key="hyb_txt")
-            if (up_img or text_query) and st.button("Search (Hybrid)", key="hyb_search"):
-                with st.spinner("Searching…"):
-                    vectors = {}
-                    if up_img:
-                        img = Image.open(up_img).convert("RGB")
-                        vectors["image"] = get_image_embedding(img)
-                    if text_query:
-                        vectors["text"] = get_text_embedding(text_query)
-                    results = hybrid_search(vectors, top_k, filters)
-                display_results(results, key_prefix="hyb_search")
+    results_shown = False
+    with img_text_tab:
+        results_shown |= _image_text_tab(search_mode, top_k, filters)
 
-        if st.session_state.get("search_results"):
-            display_results(None)
+    with sku_tab:
+        results_shown |= _sku_tab(top_k)
 
-    with tab_map["Search by SKU"]:
-        st.subheader("Find product by SKU")
-        sku_query = st.text_input("Enter SKU", key="sku_query")
-        sanitized_sku_query = sku_query.upper() if sku_query else ""
-        if st.button("Search SKU", key="sku_search"):
-            df_hit = art_df[art_df["sku"] == sanitized_sku_query]
-            st.session_state["sku_hit"] = df_hit
-
-        if "sku_hit" in st.session_state:
-            df_hit = st.session_state["sku_hit"]
-            if df_hit.empty:
-                st.warning(f"No product found with SKU `{sanitized_sku_query}`.")
-            else:
-                points = []
-                for _, row in df_hit.iterrows():
-                    class Point:
-                        pass
-                    p = Point()
-                    p.payload = row.dropna().to_dict()
-                    p.score = None
-                    points.append(p)
-                display_results(points, key_prefix="sku_results")
-
-                main_img = df_hit.iloc[0]["main_image_file"]
-                if main_img and st.button("Find Similar", key="find_similar"):
-                    img = Image.open(BytesIO(requests.get(main_img).content)).convert("RGB")
-                    emb = get_image_embedding(img)
-                    sim = vector_search(emb, "image", top_k, {})
-                    display_results(sim, key_prefix="find_similar")
-
-        if st.session_state.get("search_results"):
-            display_results(None)
-
-        # end search by SKU
+    # ----- fallback: redisplay previous results ------------------------------
+    if not results_shown and st.session_state.get("search_results"):
+        display_results(None)
