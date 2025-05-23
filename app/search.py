@@ -37,7 +37,7 @@ def show_active_filters(filters: dict) -> None:
     st.markdown("**Active filters:** " + " &nbsp; ".join(chips))
 
 
-def display_results(results: list | None) -> None:
+def display_results(results: list | None, key_prefix: str = "") -> None:
     if results is not None:
         st.session_state.search_results = results
         st.session_state.page = 0
@@ -91,14 +91,14 @@ def display_results(results: list | None) -> None:
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        if st.button("Prev", disabled=page == 0):
+        if st.button("Prev", disabled=page == 0, key=f"{key_prefix}_prev"):
             st.session_state.page = max(page - 1, 0)
             st.rerun()
     with col2:
         total = len(results)
         st.write(f"Page {page+1} of {math.ceil(total/PAGE_SIZE)}")
     with col3:
-        if st.button("Next", disabled=end >= len(results)):
+        if st.button("Next", disabled=end >= len(results), key=f"{key_prefix}_next"):
             st.session_state.page = page + 1
             st.rerun()
 
@@ -183,14 +183,14 @@ def render() -> None:
                     with st.spinner("Searching…"):
                         emb = get_image_embedding(img)
                         results = vector_search(emb, "image", top_k, filters)
-                    display_results(results)
+                    display_results(results, key_prefix="img_search")
         elif search_mode == "Text":
             text_query = st.text_input("Enter a descriptive query", key="txt_query")
             if text_query and st.button("Search", key="txt_search"):
                 with st.spinner("Searching…"):
                     emb = get_text_embedding(text_query)
                     results = vector_search(emb, "text", top_k, filters)
-                display_results(results)
+                display_results(results, key_prefix="txt_search")
         else:
             up_img = st.file_uploader("Upload image for hybrid search", type=["jpg", "jpeg", "png"], key="hyb_img")
             text_query = st.text_input("Enter a descriptive query", key="hyb_txt")
@@ -203,7 +203,7 @@ def render() -> None:
                     if text_query:
                         vectors["text"] = get_text_embedding(text_query)
                     results = hybrid_search(vectors, top_k, filters)
-                display_results(results)
+                display_results(results, key_prefix="hyb_search")
 
     with tab_map["Search by SKU"]:
         st.subheader("Find product by SKU")
@@ -226,13 +226,13 @@ def render() -> None:
                     p.payload = row.dropna().to_dict()
                     p.score = None
                     points.append(p)
-                display_results(points)
+                display_results(points, key_prefix="sku_results")
 
                 main_img = df_hit.iloc[0]["main_image_file"]
                 if main_img and st.button("Find Similar", key="find_similar"):
                     img = Image.open(BytesIO(requests.get(main_img).content)).convert("RGB")
                     emb = get_image_embedding(img)
                     sim = vector_search(emb, "image", top_k, {})
-                    display_results(sim)
+                    display_results(sim, key_prefix="find_similar")
 
         # end search by SKU
