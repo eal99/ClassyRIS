@@ -9,32 +9,28 @@ HUGGING_FACE_URL = "elev802/CLIP-Large-Image-Search"
 def generate_image_embedding(file_path):
     """
     Generate image embedding using the Hugging Face Space with the CLIP model.
-
     :param file_path: Path to the image file.
     :return: The embedding vector for the image as a list.
     """
     try:
-        # Initialize the Gradio client
         client = Client(HUGGING_FACE_URL)
-
-        # Send the file using handle_file
         result = client.predict(
             image=handle_file(file_path),
             api_name="/predict",
         )
-
-        # Ensure the result is a numpy array or similar
-        if isinstance(result, (np.ndarray, list)):
-            embedding = result
-        elif isinstance(result, str):
-            # Convert string response to list (if stringified numpy array)
-            embedding = np.fromstring(result.strip('[]'), sep=' ')
+        print("Raw result:", result)
+        # If string, parse properly
+        if isinstance(result, str):
+            embedding = np.fromstring(result.strip('[]'), sep=',')
+        elif isinstance(result, (list, np.ndarray)):
+            embedding = np.array(result)
+            if embedding.ndim == 2 and embedding.shape[0] == 1:
+                embedding = embedding[0]
         else:
             raise ValueError("Unexpected response format from Hugging Face API")
-
-        # Ensure the embedding is a plain Python list of floats
-        return [float(x) for x in embedding]
-
+        embedding = embedding.tolist()
+        assert len(embedding) == 768, f"Embedding length is {len(embedding)}, should be 768"
+        return embedding
     except Exception as e:
         logging.error(f"Error in generate_image_embedding: {e}")
         raise
