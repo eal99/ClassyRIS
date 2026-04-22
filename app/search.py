@@ -1,18 +1,13 @@
 import math
 import uuid
-import requests
-from io import BytesIO
-from PIL import Image
-import streamlit as st
+
 import pandas as pd
+import streamlit as st
 
-from app.embedding import get_image_embedding, get_text_embedding
-from app.qdrant_utils import vector_search, hybrid_search
-from app.data_utils import art_df, filter_columns_config, filter_options
+from app import config
+from app.data_utils import art_df, get_image_url_by_sku
+from app.qdrant_utils import get_by_sku, hybrid_search, search_image, search_text
 
-# --- SET PAGE CONFIG FIRST ---
-
-# small CSS tweaks for tighter layout
 st.markdown(
     """
     <style>
@@ -25,9 +20,113 @@ st.markdown(
 PAGE_SIZE = 10
 
 
-def hex_to_rgb(h: str) -> tuple[int, ...]:
-    h = h.lstrip("#")
-    return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+def _normalize_filter_value(value: object, lowercase: bool = False) -> str | None:
+    if value is None or pd.isna(value):
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    return text.lower() if lowercase else text
+
+
+def _build_filter_options() -> dict[str, list[str]]:
+    options: dict[str, list[str]] = {}
+    for conf in config.SEARCH_FILTERS:
+        values: set[str] = set()
+        for column in conf["source_columns"]:
+            if column not in art_df.columns:
+                continue
+            for raw_value in art_df[column].dropna().tolist():
+                normalized = _normalize_filter_value(
+                    raw_value,
+                    lowercase=conf.get("lowercase", False),
+                )
+                if normalized:
+                    values.add(normalized)
+        if values:
+            options[conf["payload_key"]] = ["Any"] + sorted(values)
+    return options
+
+
+FILTER_OPTIONS = _build_filter_options()
+
+
+def _get_payload_value(payload: dict, *paths: str) -> object | None:
+    for path in paths:
+        value: object | None = payload
+        for part in path.split("."):
+            if not isinstance(value, dict):
+                value = None
+                break
+            value = value.get(part)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        if value not in (None, [], {}):
+            return value
+    return None
+
+
+def _get_title(payload: dict) -> str:
+    title = _get_payload_value(
+        payload,
+        "short_description",
+        "product_name",
+        "searchable_text_short",
+        "description",
+        "sku",
+    )
+    return str(title) if title is not None else "Untitled product"
+
+
+def _get_image_url(payload: dict, sku: str) -> str | None:
+    image_url = _get_payload_value(
+        payload,
+        "primary_image_url",
+        "media.primary_image_url",
+        "main_image_file",
+        "image_url_image_file_1",
+        "image_url_lifestyle_image_1",
+        "image_url_diagram_image_1",
+        "image_url_3_dimensional_image_1",
+    )
+    if image_url:
+        return str(image_url)
+    return get_image_url_by_sku(sku)
+
+
+def _get_description_snippet(payload: dict) -> str:
+    description = _get_payload_value(
+        payload,
+        "romance_copy",
+        "page_romance",
+        "description",
+        "searchable_text_short",
+    )
+    if description is None:
+        return ""
+    text = str(description)
+    return text[:140] + ("..." if len(text) > 140 else "")
+
+
+def _render_badges(payload: dict) -> None:
+    badges = [
+        _get_payload_value(payload, "style"),
+        _get_payload_value(payload, "item_type", "item_type_facet", "category"),
+        _get_payload_value(payload, "brand", "manufacturer"),
+    ]
+    rendered = []
+    colors = [
+        ("#0074D9", "#e3f2fd"),
+        ("#388E3C", "#f1f8e9"),
+        ("#8e24aa", "#f3e5f5"),
+    ]
+    for badge, (fg, bg) in zip([b for b in badges if b], colors):
+        rendered.append(
+            f"<span style='color:{fg}; background:{bg}; padding:1px 8px; "
+            f"border-radius:8px; font-size:0.9em'>{badge}</span>"
+        )
+    if rendered:
+        st.markdown(" ".join(rendered), unsafe_allow_html=True)
 
 
 def show_active_filters(filters: dict) -> None:
@@ -53,42 +152,36 @@ def display_results(results: list | None, key_prefix: str = "") -> None:
     end = start + PAGE_SIZE
     subset = results[start:end]
 
-    df_results = pd.DataFrame([
-        {**(r.payload or {}), "score": getattr(r, "score", None)} for r in results
-    ])
+    df_results = pd.DataFrame(
+        [{**(result.payload or {}), "score": getattr(result, "score", None)} for result in results]
+    )
 
     num_cols = 5
     for i in range(0, len(subset), num_cols):
         cols = st.columns(num_cols)
-        for idx, r in enumerate(subset[i:i+num_cols]):
-            pl = r.payload or {}
-            img_url = pl.get("main_image_file")
-            name = pl.get("product_name", "N/A")
-            sku = pl.get("sku", "")
-            style = pl.get("style", "")
-            category = pl.get("category", "")
-            sclass = pl.get("class", "")
-            raw_desc = pl.get("description")
-            description = str(raw_desc) if raw_desc is not None else ""
-            score = getattr(r, "score", None)
+        for idx, result in enumerate(subset[i : i + num_cols]):
+            payload = result.payload or {}
+            sku = str(_get_payload_value(payload, "sku") or "")
+            title = _get_title(payload)
+            description = _get_description_snippet(payload)
+            image_url = _get_image_url(payload, sku)
+            score = getattr(result, "score", None)
 
             with cols[idx]:
-                if img_url:
-                    st.image(img_url, caption=name, use_container_width=True)
-                st.markdown(f"**{name}**")
-                snippet = description[:100] + ("..." if len(description) > 100 else "")
-                st.caption(snippet)
-                st.markdown(
-                    f"<span style='color:#0074D9; background:#e3f2fd; padding:1px 8px; border-radius:8px;font-size:0.9em'>{style}</span> "
-                    f"<span style='color:#388E3C; background:#f1f8e9; padding:1px 8px; border-radius:8px;font-size:0.9em'>{category}</span>",
-                    unsafe_allow_html=True,
-                )
-                st.write(f"SKU: `{sku}`  |  Class: {sclass}")
+                if image_url:
+                    st.image(image_url, caption=title, use_column_width=True)
+                st.markdown(f"**{title}**")
+                if description:
+                    st.caption(description)
+                _render_badges(payload)
+                collection = _get_payload_value(payload, "family_collection", "collection_name")
+                if collection:
+                    st.write(f"Collection: {collection}")
+                st.write(f"SKU: `{sku}`")
                 if score is not None:
                     st.markdown(f"*Relevance: {score:.3f}*")
-                with st.expander("View all details"):
-                    for k, v in pl.items():
-                        st.write(f"**{k}**: {v}")
+                with st.expander("View details"):
+                    st.json(payload)
                 st.write("---")
 
     col1, col2, col3 = st.columns(3)
@@ -98,7 +191,7 @@ def display_results(results: list | None, key_prefix: str = "") -> None:
             st.rerun()
     with col2:
         total = len(results)
-        st.write(f"Page {page+1} of {math.ceil(total/PAGE_SIZE)}")
+        st.write(f"Page {page + 1} of {math.ceil(total / PAGE_SIZE)}")
     with col3:
         if st.button("Next", disabled=end >= len(results), key=f"{key_prefix}_next"):
             st.session_state.page = page + 1
@@ -114,9 +207,7 @@ def display_results(results: list | None, key_prefix: str = "") -> None:
     )
 
 
-# ──────────────────────────────  Helpers  ──────────────────────────────
 def _build_sidebar() -> tuple[dict[str, list[str]], int, str]:
-    """Render the sidebar and return (filters, top_k, search_mode)."""
     with st.sidebar:
         st.image("company_logo.png", width=500)
         st.title("Filters")
@@ -124,29 +215,20 @@ def _build_sidebar() -> tuple[dict[str, list[str]], int, str]:
         search_mode = st.radio("Search mode", ["Image", "Text", "Hybrid"], horizontal=True)
         st.markdown("---")
 
-        # --- Colour filter ----------------------------------------------------
         filters: dict[str, list[str]] = {}
-        if st.checkbox("Filter by Color"):
-            picked_colour = st.color_picker("Pick a Color")
-            tolerance = st.slider("Colour tolerance (0–441)", 0, 441, 50)
-            target_rgb = hex_to_rgb(picked_colour)
-            tmp = art_df.copy()
-            tmp["_dist"] = tmp["dominant_color_hex"].map(lambda h: math.dist(hex_to_rgb(h), target_rgb))
-            close_hexes = tmp[tmp["_dist"] <= tolerance]["dominant_color_hex"].unique().tolist()
-            if close_hexes:
-                filters["dominant_color_hex"] = close_hexes
-        st.markdown("---")
+        only_active = st.checkbox("Only active products", value=True)
+        if only_active:
+            filters.update(config.DEFAULT_FILTERS)
 
-        # --- Multiselect filters ---------------------------------------------
-        for conf in filter_columns_config:
-            col_name = conf["col"]
-            if col_name == "dominant_color_hex":
+        for conf in config.SEARCH_FILTERS:
+            options = FILTER_OPTIONS.get(conf["payload_key"])
+            if not options:
                 continue
-            selection = st.multiselect(conf["label"], filter_options[col_name], default=[])
+            selection = st.multiselect(conf["label"], options, default=[])
             if selection and "Any" not in selection:
-                filters[col_name] = selection
+                filters[conf["payload_key"]] = selection
 
-        top_k = st.slider("Number of results", 1, 100, value=5)
+        top_k = st.slider("Number of results", 1, 100, value=10)
         st.markdown("---")
 
         if st.button("Reset all filters"):
@@ -156,107 +238,120 @@ def _build_sidebar() -> tuple[dict[str, list[str]], int, str]:
     return filters, top_k, search_mode
 
 
+def _run_search(search_fn, *args, **kwargs) -> list:
+    try:
+        return search_fn(*args, **kwargs)
+    except Exception as exc:
+        st.error(f"Qdrant search failed: {exc}")
+        return []
+
+
 def _image_text_tab(search_mode: str, top_k: int, filters: dict) -> bool:
-    """Handle the ‘Image & Text Search’ tab. Returns True if new results drawn."""
     new_results_shown = False
 
     if search_mode == "Image":
         uploaded = st.file_uploader("Upload image", type=["jpg", "jpeg", "png"])
-        if uploaded and st.button("🔍  Search"):
-            img = Image.open(uploaded).convert("RGB")
-            st.image(img, caption="Uploaded image", width=220)
-            with st.spinner("Searching…"):
-                emb = get_image_embedding(img)
-                res = vector_search(emb, "image", top_k, filters)
-            display_results(res, key_prefix="img_search")
+        if uploaded and st.button("Search", key="image_search_button"):
+            st.image(uploaded, caption="Uploaded image", width=220)
+            with st.spinner("Searching..."):
+                results = _run_search(
+                    search_image,
+                    top_k=top_k,
+                    payload_filters=filters,
+                    image_bytes=uploaded.getvalue(),
+                )
+            display_results(results, key_prefix="img_search")
             new_results_shown = True
 
     elif search_mode == "Text":
         query = st.text_input("Enter a descriptive query")
-        if query and st.button("🔍  Search"):
-            with st.spinner("Searching…"):
-                emb = get_text_embedding(query)
-                res = vector_search(emb, "text", top_k, filters)
-            display_results(res, key_prefix="txt_search")
+        if query and st.button("Search", key="text_search_button"):
+            with st.spinner("Searching..."):
+                results = _run_search(
+                    search_text,
+                    text=query,
+                    top_k=top_k,
+                    payload_filters=filters,
+                )
+            display_results(results, key_prefix="txt_search")
             new_results_shown = True
 
-    else:  # Hybrid
-        up_img = st.file_uploader("Upload image (optional)", type=["jpg", "jpeg", "png"])
+    else:
+        uploaded = st.file_uploader("Upload image (optional)", type=["jpg", "jpeg", "png"])
         query = st.text_input("Enter a descriptive query (optional)")
-        if (up_img or query) and st.button("🔍  Search"):
-            vectors = {}
-            if up_img:
-                img = Image.open(up_img).convert("RGB")
-                vectors["image"] = get_image_embedding(img)
-            if query:
-                vectors["text"] = get_text_embedding(query)
-            with st.spinner("Searching…"):
-                res = hybrid_search(vectors, top_k, filters)
-            display_results(res, key_prefix="hyb_search")
+        if (uploaded or query) and st.button("Search", key="hybrid_search_button"):
+            with st.spinner("Searching..."):
+                results = _run_search(
+                    hybrid_search,
+                    top_k=top_k,
+                    payload_filters=filters,
+                    text_query=query,
+                    image_bytes=uploaded.getvalue() if uploaded else None,
+                )
+            display_results(results, key_prefix="hyb_search")
             new_results_shown = True
 
     return new_results_shown
 
 
 def _sku_tab(top_k: int) -> bool:
-    """Handle the ‘Search by SKU’ tab. Returns True if new results drawn."""
     new_results_shown = False
     st.subheader("Find product by SKU")
 
-    sku_query = st.text_input("Enter SKU").upper()
-    if st.button("🔍  Search SKU"):
-        hit = art_df[art_df["sku"] == sku_query]
-        st.session_state["sku_hit"] = hit
+    sku_query = st.text_input("Enter SKU").strip()
+    show_raw = st.checkbox("Show raw Qdrant payload")
+    if st.button("Search SKU"):
+        st.session_state["sku_hit"] = _run_search(get_by_sku, sku_query)
 
     if "sku_hit" in st.session_state:
-        hit = st.session_state["sku_hit"]
-        if hit.empty:
+        hits = st.session_state["sku_hit"]
+        if not hits:
             st.warning(f"No product found with SKU `{sku_query}`.")
         else:
-            # Wrap DataFrame rows in dummy points expected by display_results()
-            points = []
-            for _, row in hit.iterrows():
-                class Point:  # simple struct-like helper
-                    pass
-                p = Point()
-                p.payload = row.dropna().to_dict()
-                p.score = None
-                points.append(p)
-            display_results(points, key_prefix="sku_results")
+            if show_raw:
+                st.subheader("Raw Qdrant response (SKU)")
+                st.json(
+                    [
+                        {
+                            "id": hit.id,
+                            "score": getattr(hit, "score", None),
+                            "payload": hit.payload,
+                        }
+                        for hit in hits
+                    ]
+                )
+            display_results(hits, key_prefix="sku_results")
             new_results_shown = True
 
-            # Optional “find similar” feature
-            main_img = hit.iloc[0]["main_image_file"]
-            if main_img and st.button("Find similar items"):
-                img = Image.open(BytesIO(requests.get(main_img).content)).convert("RGB")
-                emb = get_image_embedding(img)
-                similar = vector_search(emb, "image", top_k, {})
+            image_url = _get_image_url(hits[0].payload or {}, sku_query)
+            if image_url and st.button("Find similar items"):
+                with st.spinner("Searching for similar items..."):
+                    similar = _run_search(
+                        search_image,
+                        top_k=top_k,
+                        payload_filters={},
+                        image_url=image_url,
+                    )
                 display_results(similar, key_prefix="find_similar")
                 new_results_shown = True
 
     return new_results_shown
 
 
-# ───────────────────────────────  Main  ────────────────────────────────
 def render() -> None:
-    """Entry point for the Streamlit page."""
-    # ----- sidebar & filters -------------------------------------------------
     filters, top_k, search_mode = _build_sidebar()
 
-    # ----- header ------------------------------------------------------------
-    st.title("🎨 Classy Reverse Image/Text Search")
+    st.title("Classy Reverse Image/Text Search")
     show_active_filters(filters)
 
-    # ----- tabs --------------------------------------------------------------
-    img_text_tab, sku_tab = st.tabs(["Image & Text Search", "Search by SKU"])
+    tab1, tab2 = st.tabs(["Image & Text Search", "Search by SKU"])
 
     results_shown = False
-    with img_text_tab:
-        results_shown |= _image_text_tab(search_mode, top_k, filters)
+    with tab1:
+        results_shown = _image_text_tab(search_mode, top_k, filters)
+    with tab2:
+        if _sku_tab(top_k):
+            results_shown = True
 
-    with sku_tab:
-        results_shown |= _sku_tab(top_k)
-
-    # ----- fallback: redisplay previous results ------------------------------
     if not results_shown and st.session_state.get("search_results"):
         display_results(None)

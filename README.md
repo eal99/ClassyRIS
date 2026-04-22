@@ -1,43 +1,45 @@
 # ClassyRIS
 
-ClassyRIS is a Streamlit-based application for searching an artwork catalog using both text and images. It relies on OpenAI embeddings and a Qdrant vector database for retrieval.
+ClassyRIS is a Streamlit application for catalog search against Qdrant. The app now targets the `classyliving_products_current` alias by default and uses Qdrant Cloud inference for text and image queries instead of generating search embeddings locally.
+
+## Defaults
+
+- Qdrant URL: `https://8a5d6688-43c7-453b-9744-8c25e746fd04.us-east-1-0.aws.cloud.qdrant.io`
+- Collection alias: `classyliving_products_current`
+- Text dense vector: `text_dense`
+- Text sparse vector: `text_sparse`
+- Image vector: `image_dense`
+
+## Required Environment Variables
+
+- `QDRANT_API_KEY` – required for Qdrant Cloud access
+
+## Optional Environment Variables
+
+- `QDRANT_URL` – override the default Qdrant Cloud URL
+- `QDRANT_COLLECTION` – override the default alias
+- `QDRANT_TIMEOUT` – HTTP timeout in seconds
+- `QDRANT_CLOUD_INFERENCE` – set to `false` to disable Qdrant inference objects
+- `QDRANT_TEXT_DENSE_MODEL` – defaults to `openai/text-embedding-3-large`
+- `QDRANT_TEXT_SPARSE_MODEL` – defaults to `Qdrant/bm25`
+- `QDRANT_IMAGE_MODEL` – defaults to `qdrant/clip-vit-b-32-vision`
+- `PRODUCTS_CSV` – override the CSV used for filter options and payload sync
 
 ## Installation
-
-1. Clone the repository.
-2. (Optional) Create and activate a virtual environment.
-3. Install dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-## Environment Variables
-
-The app expects several environment variables to be set:
-
-- `OPENAI_API_KEY` – API key for accessing OpenAI embeddings.
-- `QDRANT_URL` – URL for your Qdrant instance.
-- `QDRANT_API_KEY` – API key for Qdrant (if required).
-- `QDRANT_COLLECTION` – Name of the Qdrant collection (defaults to `Classy_Art`).
-
-You can place these in a `.env` file or set them in your shell before running the app.
-
 ## Running the App
 
-Start the Streamlit server:
-
 ```bash
-streamlit run main.py
+streamlit run Search.py
 ```
 
-The application will open in your browser at `http://localhost:8501`.
+The admin tools are available from the Streamlit multipage navigation under `Admin`. They include:
 
-A `company_logo.png` image is included and appears in the user interface. Feel free to replace it with your own branding.
-
-## Screenshot
-
-Below is a placeholder screenshot of the running UI (replace with your own if desired):
-
-![Screenshot](company_logo.png)
-
+- CSV vs Qdrant SKU comparison
+- Qdrant audit for payload/vector completeness
+- CSV payload sync into Qdrant by SKU
+- Image vector backfill using Qdrant Cloud inference
