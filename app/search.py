@@ -52,7 +52,6 @@ def _build_filter_options() -> dict[str, list[str]]:
 
 FILTER_OPTIONS = _build_filter_options()
 IMAGE_TO_URL = getattr(st_image, "image_to_url", None)
-ORIGINAL_IMAGE_WIDTH = getattr(getattr(st_image, "WidthBehaviour", None), "ORIGINAL", -1)
 
 
 def _absolute_media_url(media_url: str) -> str | None:
@@ -73,12 +72,15 @@ def _absolute_media_url(media_url: str) -> str | None:
 
 
 def _uploaded_file_query_url(uploaded_file) -> str | None:
-    if IMAGE_TO_URL is None:
+    if IMAGE_TO_URL is None or uploaded_file is None:
+        return None
+    upload_bytes = uploaded_file.getvalue()
+    if not upload_bytes:
         return None
     try:
         media_url = IMAGE_TO_URL(
-            uploaded_file.getvalue(),
-            width=ORIGINAL_IMAGE_WIDTH,
+            upload_bytes,
+            width=config.QDRANT_QUERY_IMAGE_MAX_DIMENSION,
             clamp=False,
             channels="RGB",
             output_format="JPEG",
