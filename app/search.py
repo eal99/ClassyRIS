@@ -3,7 +3,7 @@ import uuid
 
 import pandas as pd
 import streamlit as st
-from streamlit.elements.image import WidthBehaviour, image_to_url
+from streamlit.elements import image as st_image
 
 from app import config
 from app.data_utils import art_df, get_image_url_by_sku
@@ -50,6 +50,8 @@ def _build_filter_options() -> dict[str, list[str]]:
 
 
 FILTER_OPTIONS = _build_filter_options()
+IMAGE_TO_URL = getattr(st_image, "image_to_url", None)
+ORIGINAL_IMAGE_WIDTH = getattr(getattr(st_image, "WidthBehaviour", None), "ORIGINAL", -1)
 
 
 def _absolute_media_url(media_url: str) -> str | None:
@@ -68,10 +70,12 @@ def _absolute_media_url(media_url: str) -> str | None:
 
 
 def _uploaded_file_query_url(uploaded_file) -> str | None:
+    if IMAGE_TO_URL is None:
+        return None
     try:
-        media_url = image_to_url(
+        media_url = IMAGE_TO_URL(
             uploaded_file.getvalue(),
-            width=WidthBehaviour.ORIGINAL,
+            width=ORIGINAL_IMAGE_WIDTH,
             clamp=False,
             channels="RGB",
             output_format="JPEG",
