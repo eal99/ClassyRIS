@@ -2,7 +2,7 @@
 
 ClassyRIS is a Streamlit application for catalog search against Qdrant. The app now targets the `classyliving_products_current` alias by default and uses Qdrant Cloud inference for text and image queries instead of generating search embeddings locally.
 
-Uploaded file image search is handled differently from URL-based image search: on deployed/public Streamlit runs, uploads are exposed through a temporary `/media/...` URL and sent to Qdrant Cloud inference as an HTTPS image URL. On local or private hosts where that URL would not be publicly reachable, the app falls back to optional local FastEmbed image inference using `Qdrant/clip-ViT-B-32-vision`.
+Uploaded file image search is handled differently from URL-based image search: on deployed/public Streamlit runs, uploads are exposed through a temporary `/media/...` URL and sent to Qdrant Cloud inference as an HTTPS image URL. Set `PUBLIC_BASE_URL` to the public app origin so the app can always turn those relative media paths into absolute URLs. On local or private hosts where that URL would not be publicly reachable, the app falls back to optional local FastEmbed image inference using `Qdrant/clip-ViT-B-32-vision`.
 
 ## Defaults
 
@@ -22,6 +22,7 @@ Uploaded file image search is handled differently from URL-based image search: o
 - `QDRANT_COLLECTION` – override the default alias
 - `QDRANT_TIMEOUT` – HTTP timeout in seconds
 - `QDRANT_CLOUD_INFERENCE` – set to `false` to disable Qdrant inference objects
+- `PUBLIC_BASE_URL` – public app origin used to turn Streamlit `/media/...` paths into absolute URLs for uploaded-image search
 - `QDRANT_TEXT_DENSE_MODEL` – defaults to `openai/text-embedding-3-large`
 - `QDRANT_TEXT_SPARSE_MODEL` – defaults to `Qdrant/bm25`
 - `QDRANT_IMAGE_MODEL` – defaults to `qdrant/clip-vit-b-32-vision`

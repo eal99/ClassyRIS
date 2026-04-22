@@ -169,8 +169,11 @@ def _search_uploaded_image_locally(
     except Exception as exc:
         raise RuntimeError(
             "Uploaded-file image search uses local FastEmbed because Qdrant Cloud "
-            "image inference rejects inline uploads for this collection. Install "
-            "`qdrant-client[fastembed]` in the app environment to enable it."
+            "image inference rejects inline uploads for this collection. Set "
+            "`PUBLIC_BASE_URL` for deployed Streamlit runs so uploads can be "
+            "passed to Qdrant as public `/media/...` URLs, or install "
+            "`qdrant-client[fastembed]` in the app environment to enable local "
+            "fallback inference."
         ) from exc
 
 

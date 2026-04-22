@@ -19,6 +19,7 @@ QDRANT_URL = os.getenv(
 QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "classyliving_products_current")
 QDRANT_TIMEOUT = int(os.getenv("QDRANT_TIMEOUT", "30"))
 QDRANT_CLOUD_INFERENCE = _get_bool("QDRANT_CLOUD_INFERENCE", True)
+PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").strip().rstrip("/")
 
 QDRANT_TEXT_DENSE_VECTOR = os.getenv("QDRANT_TEXT_DENSE_VECTOR", "text_dense")
 QDRANT_TEXT_SPARSE_VECTOR = os.getenv("QDRANT_TEXT_SPARSE_VECTOR", "text_sparse")

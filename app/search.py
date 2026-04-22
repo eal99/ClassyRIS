@@ -1,5 +1,6 @@
 import math
 import uuid
+from urllib.parse import urljoin
 
 import pandas as pd
 import streamlit as st
@@ -59,6 +60,8 @@ def _absolute_media_url(media_url: str) -> str | None:
         return None
     if media_url.startswith(("http://", "https://")):
         return media_url
+    if config.PUBLIC_BASE_URL:
+        return urljoin(f"{config.PUBLIC_BASE_URL}/", media_url.lstrip("/"))
     headers = getattr(st.context, "headers", None)
     if not headers:
         return None
