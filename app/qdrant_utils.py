@@ -1,7 +1,11 @@
-import base64
 import os
+from io import BytesIO
+from contextlib import contextmanager
+from tempfile import NamedTemporaryFile
+from types import SimpleNamespace
 
 from dotenv import load_dotenv
+from PIL import Image, ImageOps
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as qmodels
 
@@ -22,6 +26,18 @@ def get_client() -> QdrantClient:
             check_compatibility=False,
         )
     return get_client.instance
+
+
+def get_local_inference_client() -> QdrantClient:
+    if not hasattr(get_local_inference_client, "instance"):
+        get_local_inference_client.instance = QdrantClient(
+            url=config.QDRANT_URL,
+            api_key=QDRANT_API_KEY,
+            timeout=config.QDRANT_TIMEOUT,
+            cloud_inference=False,
+            check_compatibility=False,
+        )
+    return get_local_inference_client.instance
 
 
 def build_filter(payload_filters: dict | None) -> qmodels.Filter | None:
@@ -69,12 +85,132 @@ def _provider_options_for_model(model_name: str) -> dict[str, str] | None:
     return None
 
 
+def _flatten_to_rgb(image: Image.Image) -> Image.Image:
+    image = ImageOps.exif_transpose(image)
+    if image.mode in {"RGBA", "LA"}:
+        background = Image.new("RGB", image.size, (255, 255, 255))
+        alpha = image.getchannel("A") if "A" in image.getbands() else None
+        background.paste(image.convert("RGB"), mask=alpha)
+        return background
+    if image.mode != "RGB":
+        return image.convert("RGB")
+    return image
+
+
+def _resize_to_max_dimension(image: Image.Image, max_dimension: int) -> Image.Image:
+    longest_side = max(image.size)
+    if longest_side <= max_dimension:
+        return image
+    scale = max_dimension / float(longest_side)
+    new_size = (
+        max(1, int(round(image.width * scale))),
+        max(1, int(round(image.height * scale))),
+    )
+    return image.resize(new_size, Image.Resampling.LANCZOS)
+
+
+def _save_jpeg_bytes(image: Image.Image, quality: int) -> bytes:
+    buffer = BytesIO()
+    image.save(
+        buffer,
+        format="JPEG",
+        quality=quality,
+        optimize=True,
+    )
+    return buffer.getvalue()
+
+
+def _prepare_query_image_bytes(image_bytes: bytes) -> bytes:
+    with Image.open(BytesIO(image_bytes)) as raw_image:
+        image = _flatten_to_rgb(raw_image)
+    resized = _resize_to_max_dimension(image, config.QDRANT_QUERY_IMAGE_MAX_DIMENSION)
+    return _save_jpeg_bytes(resized, quality=config.QDRANT_QUERY_IMAGE_JPEG_QUALITY)
+
+
+@contextmanager
+def _temporary_query_image(image_bytes: bytes):
+    prepared = _prepare_query_image_bytes(image_bytes)
+    tmp = NamedTemporaryFile(suffix=".jpg", delete=False)
+    try:
+        tmp.write(prepared)
+        tmp.flush()
+        tmp.close()
+        yield tmp.name
+    finally:
+        try:
+            os.unlink(tmp.name)
+        except FileNotFoundError:
+            pass
+
+
+def _search_uploaded_image_locally(
+    top_k: int,
+    payload_filters: dict | None = None,
+    include_full_payload: bool = False,
+    image_bytes: bytes | None = None,
+) -> list[qmodels.ScoredPoint]:
+    if not image_bytes:
+        return []
+    try:
+        client = get_local_inference_client()
+        with _temporary_query_image(image_bytes) as image_path:
+            resp = client.query_points(
+                collection_name=config.QDRANT_COLLECTION,
+                query=qmodels.Image(
+                    image=image_path,
+                    model=config.QDRANT_LOCAL_IMAGE_MODEL,
+                ),
+                using=config.QDRANT_IMAGE_VECTOR,
+                limit=top_k,
+                query_filter=build_filter(payload_filters),
+                with_payload=_payload_selector(include_full_payload),
+            )
+        return resp.points
+    except Exception as exc:
+        raise RuntimeError(
+            "Uploaded-file image search uses local FastEmbed because Qdrant Cloud "
+            "image inference rejects inline uploads for this collection. Install "
+            "`qdrant-client[fastembed]` in the app environment to enable it."
+        ) from exc
+
+
+def _fuse_scored_points_rrf(
+    result_sets: list[list[qmodels.ScoredPoint]],
+    top_k: int,
+    rrf_k: int = 60,
+) -> list[SimpleNamespace]:
+    combined_scores: dict[str, float] = {}
+    best_points: dict[str, qmodels.ScoredPoint] = {}
+    for results in result_sets:
+        for rank, point in enumerate(results, start=1):
+            point_id = str(getattr(point, "id", ""))
+            if not point_id:
+                continue
+            combined_scores[point_id] = combined_scores.get(point_id, 0.0) + 1.0 / (rrf_k + rank)
+            best_points.setdefault(point_id, point)
+
+    ordered = sorted(combined_scores.items(), key=lambda item: item[1], reverse=True)
+    fused: list[SimpleNamespace] = []
+    for point_id, fused_score in ordered[:top_k]:
+        point = best_points[point_id]
+        fused.append(
+            SimpleNamespace(
+                id=getattr(point, "id", point_id),
+                payload=getattr(point, "payload", None),
+                score=fused_score,
+            )
+        )
+    return fused
+
+
 def build_image_vector(image_url: str | None = None, image_bytes: bytes | None = None) -> qmodels.Image:
+    if image_bytes:
+        raise ValueError(
+            "Inline image bytes are not supported for Qdrant Cloud inference in this app. "
+            "Use a public image URL or the local upload search path."
+        )
     if image_url:
         return qmodels.Image(image=image_url, model=config.QDRANT_IMAGE_MODEL)
-    if image_bytes:
-        encoded = base64.b64encode(image_bytes).decode("utf-8")
-        return qmodels.Image(image=encoded, model=config.QDRANT_IMAGE_MODEL)
     raise ValueError("Either image_url or image_bytes must be provided.")
 
 
@@ -117,6 +253,13 @@ def search_image(
     image_bytes: bytes | None = None,
     include_full_payload: bool = False,
 ) -> list[qmodels.ScoredPoint]:
+    if image_bytes and not image_url:
+        return _search_uploaded_image_locally(
+            top_k=top_k,
+            payload_filters=payload_filters,
+            include_full_payload=include_full_payload,
+            image_bytes=image_bytes,
+        )
     client = get_client()
     resp = client.query_points(
         collection_name=config.QDRANT_COLLECTION,
@@ -139,6 +282,23 @@ def hybrid_search(
 ) -> list[qmodels.ScoredPoint]:
     prefetch: list[qmodels.Prefetch] = []
     clean_text = (text_query or "").strip()
+
+    if image_bytes and not image_url:
+        image_results = _search_uploaded_image_locally(
+            top_k=_prefetch_limit(top_k),
+            payload_filters=payload_filters,
+            include_full_payload=include_full_payload,
+            image_bytes=image_bytes,
+        )
+        if not clean_text:
+            return image_results[:top_k]
+        text_results = search_text(
+            clean_text,
+            top_k=_prefetch_limit(top_k),
+            payload_filters=payload_filters,
+            include_full_payload=include_full_payload,
+        )
+        return _fuse_scored_points_rrf([text_results, image_results], top_k=top_k)
 
     if clean_text:
         prefetch.extend(

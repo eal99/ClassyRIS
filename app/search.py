@@ -3,6 +3,7 @@ import uuid
 
 import pandas as pd
 import streamlit as st
+from streamlit.elements.image import WidthBehaviour, image_to_url
 
 from app import config
 from app.data_utils import art_df, get_image_url_by_sku
@@ -49,6 +50,36 @@ def _build_filter_options() -> dict[str, list[str]]:
 
 
 FILTER_OPTIONS = _build_filter_options()
+
+
+def _absolute_media_url(media_url: str) -> str | None:
+    if not media_url:
+        return None
+    if media_url.startswith(("http://", "https://")):
+        return media_url
+    headers = getattr(st.context, "headers", None)
+    if not headers:
+        return None
+    host = headers.get("Host") or headers.get("host")
+    if not host or host.startswith(("localhost", "127.0.0.1", "0.0.0.0")):
+        return None
+    proto = headers.get("X-Forwarded-Proto") or headers.get("x-forwarded-proto") or "https"
+    return f"{proto}://{host}{media_url}"
+
+
+def _uploaded_file_query_url(uploaded_file) -> str | None:
+    try:
+        media_url = image_to_url(
+            uploaded_file.getvalue(),
+            width=WidthBehaviour.ORIGINAL,
+            clamp=False,
+            channels="RGB",
+            output_format="JPEG",
+            image_id=f"qdrant-upload-{uuid.uuid4()}",
+        )
+    except Exception:
+        return None
+    return _absolute_media_url(media_url)
 
 
 def _get_payload_value(payload: dict, *paths: str) -> object | None:
@@ -253,12 +284,14 @@ def _image_text_tab(search_mode: str, top_k: int, filters: dict) -> bool:
         uploaded = st.file_uploader("Upload image", type=["jpg", "jpeg", "png"])
         if uploaded and st.button("Search", key="image_search_button"):
             st.image(uploaded, caption="Uploaded image", width=220)
+            uploaded_url = _uploaded_file_query_url(uploaded)
             with st.spinner("Searching..."):
                 results = _run_search(
                     search_image,
                     top_k=top_k,
                     payload_filters=filters,
-                    image_bytes=uploaded.getvalue(),
+                    image_url=uploaded_url,
+                    image_bytes=None if uploaded_url else uploaded.getvalue(),
                 )
             display_results(results, key_prefix="img_search")
             new_results_shown = True
@@ -280,13 +313,15 @@ def _image_text_tab(search_mode: str, top_k: int, filters: dict) -> bool:
         uploaded = st.file_uploader("Upload image (optional)", type=["jpg", "jpeg", "png"])
         query = st.text_input("Enter a descriptive query (optional)")
         if (uploaded or query) and st.button("Search", key="hybrid_search_button"):
+            uploaded_url = _uploaded_file_query_url(uploaded) if uploaded else None
             with st.spinner("Searching..."):
                 results = _run_search(
                     hybrid_search,
                     top_k=top_k,
                     payload_filters=filters,
                     text_query=query,
-                    image_bytes=uploaded.getvalue() if uploaded else None,
+                    image_url=uploaded_url,
+                    image_bytes=(uploaded.getvalue() if uploaded and not uploaded_url else None),
                 )
             display_results(results, key_prefix="hyb_search")
             new_results_shown = True

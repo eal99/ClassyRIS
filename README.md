@@ -2,6 +2,8 @@
 
 ClassyRIS is a Streamlit application for catalog search against Qdrant. The app now targets the `classyliving_products_current` alias by default and uses Qdrant Cloud inference for text and image queries instead of generating search embeddings locally.
 
+Uploaded file image search is handled differently from URL-based image search: on deployed/public Streamlit runs, uploads are exposed through a temporary `/media/...` URL and sent to Qdrant Cloud inference as an HTTPS image URL. On local or private hosts where that URL would not be publicly reachable, the app falls back to optional local FastEmbed image inference using `Qdrant/clip-ViT-B-32-vision`.
+
 ## Defaults
 
 - Qdrant URL: `https://8a5d6688-43c7-453b-9744-8c25e746fd04.us-east-1-0.aws.cloud.qdrant.io`
