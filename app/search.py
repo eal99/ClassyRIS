@@ -209,7 +209,7 @@ def display_results(results: list | None, key_prefix: str = "") -> None:
 
             with cols[idx]:
                 if image_url:
-                    st.image(image_url, caption=title, use_column_width=True)
+                    st.image(image_url, caption=title, width="stretch")
                 st.markdown(f"**{title}**")
                 if description:
                     st.caption(description)
